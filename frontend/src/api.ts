@@ -170,6 +170,13 @@ export async function askCipher(prompt: string, conversationId?: string) {
   return data;
 }
 
+export async function suggestCipher(conversationId: string) {
+  const { data } = await api.post("/cipher/suggest", {
+    conversation_id: conversationId,
+  });
+  return data as { should_suggest: boolean; reason: string; prompt: string };
+}
+
 // ---- Search -------------------------------------------------------
 export async function search(q: string, type: "all" | "messages" | "contacts" | "ai" = "all") {
   const { data } = await api.get("/search", { params: { q, type } });

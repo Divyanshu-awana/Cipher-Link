@@ -120,6 +120,10 @@ class CipherAskIn(BaseModel):
     conversation_id: Optional[str] = None
 
 
+class CipherSuggestIn(BaseModel):
+    conversation_id: str
+
+
 class TFASetupOut(BaseModel):
     secret: str
     otpauth_url: str
@@ -554,13 +558,20 @@ CIPHER_SYSTEM = (
     '  "cards": [ ... up to 3 structured cards ... ]\n'
     "}\n"
     "Card schemas by intent:\n"
-    "- restaurant: {type:'restaurant', name, cuisine, rating (1-5 float), price (one of '$','$$','$$$','$$$$'), distance_km, address, image_url, book_url}\n"
-    "- weather: {type:'weather', location, current_temp_c, condition, icon ('sunny'|'cloudy'|'rainy'|'snowy'|'stormy'|'partly-cloudy'), forecast: [{day, high_c, low_c, icon}]}\n"
-    "- calendar: {type:'calendar', title, date (YYYY-MM-DD), time (HH:MM 24h), duration_min, attendees:[names], meet_link}\n"
+    "- restaurant: {type:'restaurant', name, cuisine, rating (1-5 float, 1 decimal), price (one of '$','$$','$$$','$$$$'), distance_km (1 decimal), address (real-looking street address that matches the requested city/neighbourhood), image_url, book_url}\n"
+    "- weather: {type:'weather', location, current_temp_c (seasonal realistic integer for that city), condition (e.g. 'Clear', 'Partly Cloudy', 'Light Rain'), icon ('sunny'|'cloudy'|'rainy'|'snowy'|'stormy'|'partly-cloudy'), forecast: [{day:'Tomorrow'|'Wed'|..., high_c, low_c, icon}] (exactly 4 entries)}\n"
+    "- calendar: {type:'calendar', title, date (YYYY-MM-DD resolved from the user's phrasing), time (HH:MM 24h), duration_min, attendees:[names], meet_link ('https://meet.google.com/xxx-xxxx-xxx')}\n"
     "- reminder: {type:'reminder', title, when_iso, note}\n"
     "- general: omit cards or use [{type:'general', text}].\n"
-    "When external data is unknown, INVENT plausible realistic values (this is a demo, not production). "
-    "Never apologise, never refuse. Always return valid JSON."
+    "Realism rules (VERY IMPORTANT):\n"
+    "- Restaurant names should sound native to the cuisine and city (e.g. 'Trattoria Piccolo' in Delhi, 'The Spotted Pig' in NYC).\n"
+    "- Restaurant addresses must include the actual neighbourhood or landmark the user mentioned.\n"
+    "- For restaurant image_url, ALWAYS use a real Unsplash photo URL in the form 'https://images.unsplash.com/photo-<id>?w=600&q=80'. Pick an id that evokes the cuisine (Italian → pasta/pizza, Japanese → sushi, Indian → curry, cafe → latte). If unsure, use 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80'.\n"
+    "- For book_url, use 'https://cipherlink.app/book/<restaurant-slug>'.\n"
+    "- Weather temperature must be plausible for the city + time of year (Delhi summer 35-42°C, London winter 2-8°C, etc.).\n"
+    "- Calendar meet_link must look like a real Google Meet code (3 chars-4 chars-3 chars).\n"
+    "- When a follow-up is ambiguous ('cheaper', 'something else', 'what about X'), INFER missing slots (cuisine, city, party size, date) from the earlier conversation. Never re-ask.\n"
+    "- Never apologise, never refuse, never say 'as an AI'. Always return valid JSON."
 )
 
 
@@ -639,6 +650,68 @@ async def cipher_ask(payload: CipherAskIn, user=Depends(current_user)):
         "created_at": now_iso(),
     })
     return parsed
+
+
+SUGGEST_SYSTEM = (
+    "You are a silent observer assistant that scans a short chat transcript "
+    "and decides if the participants are actively trying to schedule a meeting, "
+    "call, sync, standup, catch-up, or in-person gathering. "
+    "Return ONLY a JSON object: "
+    '{"should_suggest": bool, "reason": "<one short sentence>", '
+    '"prompt": "<a ready-to-send @Cipher prompt that would schedule the meeting, '
+    'e.g. Schedule a 30 min sync Tue 4pm with the group>"}. '
+    "Be conservative — only suggest when there is clear intent "
+    "(words like meet, call, sync, catch up, schedule, let's hop on, when are you free). "
+    "Do NOT suggest for casual mentions like 'meeting went well yesterday'."
+)
+
+
+@api.post("/cipher/suggest")
+async def cipher_suggest(payload: CipherSuggestIn, user=Depends(current_user)):
+    """Proactively scan recent messages and decide if a meeting should be scheduled."""
+    if not EMERGENT_LLM_KEY:
+        return {"should_suggest": False, "reason": "llm unavailable", "prompt": ""}
+    c = await _ensure_member(payload.conversation_id, user["id"])
+    msgs = await db.messages.find(
+        {"conversation_id": payload.conversation_id, "type": {"$in": ["text"]}, "deleted": {"$ne": True}},
+        {"_id": 0, "sender_id": 1, "content": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(15)
+    if len(msgs) < 2:
+        return {"should_suggest": False, "reason": "not enough messages", "prompt": ""}
+    msgs.reverse()
+    # Build transcript
+    id_to_name = {
+        m["id"]: m.get("name", "User")
+        for m in await db.users.find(
+            {"id": {"$in": list({x["sender_id"] for x in msgs})}}, {"_id": 0, "id": 1, "name": 1}
+        ).to_list(100)
+    }
+    transcript = "\n".join(
+        f"{id_to_name.get(m['sender_id'], 'User')}: {m['content']}"
+        for m in msgs
+        if m.get("content") and not m["content"].lower().startswith("@cipher")
+    )
+    if not transcript.strip():
+        return {"should_suggest": False, "reason": "empty", "prompt": ""}
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"suggest-{payload.conversation_id}-{datetime.now().timestamp()}",
+            system_message=SUGGEST_SYSTEM,
+        ).with_model("openai", "gpt-4o")
+        reply = await chat.send_message(UserMessage(text=f"Transcript:\n{transcript}"))
+        parsed = json.loads(_strip_fences(reply))
+    except Exception as exc:
+        logger.warning("cipher suggest failed: %s", exc)
+        return {"should_suggest": False, "reason": "error", "prompt": ""}
+
+    return {
+        "should_suggest": bool(parsed.get("should_suggest")),
+        "reason": str(parsed.get("reason", ""))[:200],
+        "prompt": str(parsed.get("prompt", ""))[:300],
+    }
 
 
 # ===================================================================

@@ -19,6 +19,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as Clipboard from "expo-clipboard";
+import * as FileSystem from "expo-file-system/legacy";
+import { Audio } from "expo-av";
 import { COLORS, RADIUS, ASSETS } from "../../src/theme";
 import { useAuth, useTheme } from "../../src/store";
 import {
@@ -31,6 +33,7 @@ import {
   reactMessage,
   readAll,
   sendMessage,
+  suggestCipher,
 } from "../../src/api";
 import Avatar from "../../src/Avatar";
 import MessageBubble, { Message } from "../../src/MessageBubble";
@@ -57,8 +60,15 @@ export default function ChatScreen() {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [showCipherModal, setShowCipherModal] = useState(false);
   const [cipherPrompt, setCipherPrompt] = useState("");
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recordingDur, setRecordingDur] = useState(0);
+  const [suggestion, setSuggestion] = useState<{ prompt: string; reason: string } | null>(null);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   const pollRef = useRef<any>(null);
+  const suggestRef = useRef<any>(null);
+  const lastSeenIdRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -81,13 +91,47 @@ export default function ChatScreen() {
       pollRef.current = setInterval(async () => {
         try {
           const m = await listMessages(id);
-          setMsgs((prev) => mergeMessages(prev, m));
+          setMsgs((prev) => {
+            const merged = mergeMessages(prev, m);
+            // Toast for new incoming messages
+            const last = merged[merged.length - 1];
+            if (
+              last &&
+              last.id !== lastSeenIdRef.current &&
+              last.sender_id !== user?.id &&
+              prev.length > 0 &&
+              !prev.find((x) => x.id === last.id)
+            ) {
+              setToast(
+                `${last.sender?.name || "Someone"}: ${
+                  last.type === "cipher"
+                    ? "Cipher responded"
+                    : last.deleted
+                    ? "deleted a message"
+                    : (last.content || last.type).slice(0, 60)
+                }`
+              );
+              setTimeout(() => setToast(null), 3500);
+            }
+            lastSeenIdRef.current = last?.id || null;
+            return merged;
+          });
         } catch {}
       }, POLL_MS);
+      suggestRef.current = setInterval(async () => {
+        if (suggestionDismissed) return;
+        try {
+          const s = await suggestCipher(id);
+          if (s.should_suggest && s.prompt) {
+            setSuggestion({ prompt: s.prompt, reason: s.reason });
+          }
+        } catch {}
+      }, 30000);
       return () => {
         clearInterval(pollRef.current);
+        clearInterval(suggestRef.current);
       };
-    }, [load, id])
+    }, [load, id, suggestionDismissed, user?.id])
   );
 
   useEffect(() => {
@@ -248,6 +292,103 @@ export default function ChatScreen() {
     setMsgs((prev) => [...prev, newMsg]);
   };
 
+  const startRecording = async () => {
+    try {
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert("Permission required", "Microphone access denied.");
+        return;
+      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      const rec = new Audio.Recording();
+      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await rec.startAsync();
+      setRecording(rec);
+      setRecordingDur(0);
+      const t0 = Date.now();
+      const tick = setInterval(() => {
+        setRecordingDur(Math.floor((Date.now() - t0) / 1000));
+      }, 500);
+      (rec as any)._tick = tick;
+    } catch (e) {
+      Alert.alert("Recording failed", String(e));
+    }
+  };
+
+  const stopRecordingAndSend = async () => {
+    if (!recording) return;
+    try {
+      clearInterval((recording as any)._tick);
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecording(null);
+      setRecordingDur(0);
+      if (!uri) return;
+      const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      const data = `data:audio/m4a;base64,${b64}`;
+      const durationLabel = `0:${String(recordingDur).padStart(2, "0")}`;
+      const newMsg = await sendMessage(id, {
+        content: `Voice message · ${durationLabel}`,
+        type: "audio",
+        media_b64: data,
+        media_name: `voice-${Date.now()}.m4a`,
+      });
+      setMsgs((prev) => [...prev, newMsg]);
+    } catch (e) {
+      Alert.alert("Send failed", apiError(e));
+    }
+  };
+
+  const cancelRecording = async () => {
+    if (!recording) return;
+    try {
+      clearInterval((recording as any)._tick);
+      await recording.stopAndUnloadAsync();
+    } catch {}
+    setRecording(null);
+    setRecordingDur(0);
+  };
+
+  const sendVideo = async () => {
+    setShowAttach(false);
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      base64: true,
+      videoMaxDuration: 10,
+      quality: 0.4,
+    });
+    if (res.canceled) return;
+    const a = res.assets[0];
+    if (!a?.uri) return;
+    // Read file as base64 (ImagePicker doesn't return base64 for videos reliably)
+    let b64 = a.base64;
+    if (!b64) {
+      try {
+        b64 = await FileSystem.readAsStringAsync(a.uri, { encoding: FileSystem.EncodingType.Base64 });
+      } catch {
+        Alert.alert("Video too large", "Please pick a shorter video.");
+        return;
+      }
+    }
+    const sizeMB = b64.length / 1.37 / 1024 / 1024;
+    if (sizeMB > 8) {
+      Alert.alert("Video too large", `This clip is ~${sizeMB.toFixed(1)} MB. Limit is 8 MB.`);
+      return;
+    }
+    const mime = a.mimeType || "video/mp4";
+    const newMsg = await sendMessage(id, {
+      content: "🎥 Video",
+      type: "video",
+      media_b64: `data:${mime};base64,${b64}`,
+      media_name: a.fileName || `clip-${Date.now()}.mp4`,
+      media_size: Math.round(b64.length * 0.75),
+    });
+    setMsgs((prev) => [...prev, newMsg]);
+  };
+
   const onDelete = async () => {
     if (!contextMsg) return;
     try {
@@ -276,7 +417,12 @@ export default function ChatScreen() {
       <Stack.Screen
         options={{
           headerTitle: () => (
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <TouchableOpacity
+              testID="chat-header"
+              disabled={conv?.type !== "group"}
+              onPress={() => conv?.type === "group" && router.push(`/group-info/${conv.id}`)}
+              style={{ flexDirection: "row", alignItems: "center" }}
+            >
               <Avatar
                 uri={conv?.photo}
                 name={headerTitle}
@@ -287,9 +433,12 @@ export default function ChatScreen() {
               />
               <View style={{ marginLeft: 10 }}>
                 <Text style={{ color: colors.textPrimary, fontWeight: "700" }}>{headerTitle}</Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 11 }}>{headerSub}</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 11 }}>
+                  {headerSub}
+                  {conv?.type === "group" ? "  ›  tap for info" : ""}
+                </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ),
         }}
       />
@@ -367,11 +516,76 @@ export default function ChatScreen() {
             {sending ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="send" size={18} color="#fff" />}
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity testID="chat-mic-button" onPress={sendVoiceMock} style={[styles.sendBtn, { backgroundColor: COLORS.primary }]}>
-            <Ionicons name="mic" size={20} color="#fff" />
+          <TouchableOpacity
+            testID="chat-mic-button"
+            onPress={recording ? stopRecordingAndSend : startRecording}
+            onLongPress={recording ? cancelRecording : undefined}
+            style={[styles.sendBtn, { backgroundColor: recording ? COLORS.error : COLORS.primary }]}
+          >
+            <Ionicons name={recording ? "stop" : "mic"} size={20} color="#fff" />
           </TouchableOpacity>
         )}
       </View>
+
+      {recording ? (
+        <View style={[styles.recordingBanner, { backgroundColor: COLORS.error }]}>
+          <View style={styles.recordingDot} />
+          <Text style={{ color: "#fff", fontWeight: "700" }}>
+            Recording… 0:{String(recordingDur).padStart(2, "0")}
+          </Text>
+          <Text style={{ color: "#fff", fontSize: 11, marginLeft: 10, opacity: 0.9 }}>
+            Tap ■ to send · long-press to cancel
+          </Text>
+        </View>
+      ) : null}
+
+      {suggestion && !suggestionDismissed ? (
+        <View
+          testID="cipher-suggestion-banner"
+          style={[styles.suggestBanner, { backgroundColor: mode === "dark" ? "#241B3F" : "#F6F1FF", borderColor: COLORS.aiAccent }]}
+        >
+          <Ionicons name="sparkles" size={18} color={COLORS.aiAccent} />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={{ color: COLORS.aiAccent, fontWeight: "700", fontSize: 12 }}>
+              Cipher suggests
+            </Text>
+            <Text style={{ color: colors.textPrimary, fontSize: 13 }} numberOfLines={2}>
+              {suggestion.reason}
+            </Text>
+          </View>
+          <TouchableOpacity
+            testID="cipher-suggestion-accept"
+            onPress={async () => {
+              const p = suggestion.prompt;
+              setSuggestion(null);
+              setSuggestionDismissed(true);
+              await askCipherAndPost(p);
+            }}
+            style={{ backgroundColor: COLORS.aiAccent, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 100 }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Schedule</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="cipher-suggestion-dismiss"
+            onPress={() => {
+              setSuggestion(null);
+              setSuggestionDismissed(true);
+            }}
+            style={{ marginLeft: 6, padding: 4 }}
+          >
+            <Ionicons name="close" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {toast ? (
+        <View style={[styles.toast, { backgroundColor: colors.surface, borderColor: COLORS.primary }]}>
+          <Ionicons name="notifications" size={16} color={COLORS.primary} />
+          <Text style={{ color: colors.textPrimary, marginLeft: 8, flex: 1 }} numberOfLines={2}>
+            {toast}
+          </Text>
+        </View>
+      ) : null}
 
       <TouchableOpacity
         testID="cipher-floating-button"
@@ -391,8 +605,8 @@ export default function ChatScreen() {
             <View style={styles.attachGrid}>
               <AttachOption icon="camera" label="Camera" onPress={sendCamera} testID="attach-camera" />
               <AttachOption icon="image" label="Gallery" onPress={sendImage} testID="attach-gallery" />
+              <AttachOption icon="videocam" label="Video" onPress={sendVideo} testID="attach-video" />
               <AttachOption icon="document" label="Document" onPress={sendDoc} testID="attach-doc" />
-              <AttachOption icon="mic" label="Audio" onPress={sendVoiceMock} testID="attach-audio" />
             </View>
           </Pressable>
         </Pressable>
@@ -678,5 +892,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 100,
+  },
+  recordingBanner: {
+    position: "absolute",
+    bottom: 140,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  recordingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#fff",
+    marginRight: 10,
+  },
+  suggestBanner: {
+    position: "absolute",
+    bottom: 68,
+    left: 8,
+    right: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  toast: {
+    position: "absolute",
+    top: 12,
+    left: 16,
+    right: 16,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });

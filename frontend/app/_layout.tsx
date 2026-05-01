@@ -24,6 +24,7 @@ function ThemedStack() {
         <Stack.Screen name="chat/[id]" options={{ title: "" }} />
         <Stack.Screen name="new-chat" options={{ title: "New chat" }} />
         <Stack.Screen name="group-create" options={{ title: "New group" }} />
+        <Stack.Screen name="group-info/[id]" options={{ title: "Group info" }} />
         <Stack.Screen name="onboarding-tour" options={{ headerShown: false }} />
         <Stack.Screen name="tfa-setup" options={{ title: "Enable 2FA" }} />
       </Stack>

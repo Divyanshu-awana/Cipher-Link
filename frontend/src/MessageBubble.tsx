@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Image,
   StyleSheet,
@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Audio, Video, ResizeMode } from "expo-av";
 import { COLORS, RADIUS } from "./theme";
 import { useTheme } from "./store";
 import VoiceWaveform from "./VoiceWaveform";
@@ -121,12 +122,10 @@ export default function MessageBubble({
           </Text>
         ) : msg.type === "image" && msg.media_b64 ? (
           <Image source={{ uri: msg.media_b64 }} style={styles.mediaImg} />
+        ) : msg.type === "video" && msg.media_b64 ? (
+          <VideoBubble uri={msg.media_b64} />
         ) : msg.type === "audio" ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Ionicons name="play-circle" size={28} color={textColor} />
-            <VoiceWaveform id={msg.id} color={textColor} />
-            <Text style={{ color: textColor, fontSize: 11 }}>0:08</Text>
-          </View>
+          <AudioBubble uri={msg.media_b64} id={msg.id} textColor={textColor} content={msg.content} />
         ) : msg.type === "document" ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Ionicons name="document" size={26} color={textColor} />
@@ -187,6 +186,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   mediaImg: { width: 220, height: 160, borderRadius: 12, backgroundColor: "#0002" },
+  video: { width: 240, height: 160, borderRadius: 12, backgroundColor: "#000" },
   reactionsRow: {
     flexDirection: "row",
     gap: 4,
@@ -201,3 +201,65 @@ const styles = StyleSheet.create({
     borderColor: "#0001",
   },
 });
+
+function VideoBubble({ uri }: { uri: string }) {
+  return (
+    <Video
+      source={{ uri }}
+      style={styles.video}
+      useNativeControls
+      resizeMode={ResizeMode.COVER}
+      isLooping={false}
+    />
+  );
+}
+
+function AudioBubble({
+  uri,
+  id,
+  textColor,
+  content,
+}: {
+  uri?: string;
+  id: string;
+  textColor: string;
+  content?: string;
+}) {
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [playing, setPlaying] = useState(false);
+
+  const toggle = async () => {
+    if (!uri) return;
+    try {
+      if (sound && playing) {
+        await sound.pauseAsync();
+        setPlaying(false);
+        return;
+      }
+      if (sound && !playing) {
+        await sound.playAsync();
+        setPlaying(true);
+        return;
+      }
+      const { sound: s } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+      s.setOnPlaybackStatusUpdate((st: any) => {
+        if (st?.didJustFinish) {
+          setPlaying(false);
+        }
+      });
+      setSound(s);
+      setPlaying(true);
+    } catch {}
+  };
+
+  const duration = (content || "").match(/0:\d{2}/)?.[0] || "0:00";
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <TouchableOpacity onPress={toggle} disabled={!uri}>
+        <Ionicons name={playing ? "pause-circle" : "play-circle"} size={32} color={textColor} />
+      </TouchableOpacity>
+      <VoiceWaveform id={id} color={textColor} />
+      <Text style={{ color: textColor, fontSize: 11 }}>{duration}</Text>
+    </View>
+  );
+}

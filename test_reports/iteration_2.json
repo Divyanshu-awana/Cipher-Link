@@ -1,0 +1,56 @@
+{
+  "summary": "Iteration 2 testing pass. Backend: 9/9 new tests passed covering POST /api/cipher/suggest (meeting-intent true/false, too-few messages, non-member 403), video + audio message storage, and restaurant Unsplash realism. Regression: 24/25 on existing suite (only known test-side email-case assertion fails). Frontend: All 6 new iteration-2 capabilities verified — attach-video present / attach-audio removed, mic button (tap no crash), restaurant Unsplash image URL, Cipher meeting-suggestion banner appeared ~5s after 3 meeting msgs and Accept posted the calendar card, and tapping the group chat header routed to /group-info/{id} with member rows + admin chip + Leave button.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/register",
+        "issue": "Pre-existing test-side email-casing assertion failure carried from iteration 1. Backend lowercases email (by design) but the assertion expects exact case. Not a backend bug."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "chat/[id].tsx · restaurant card image",
+        "issue": "Unsplash URL prefix is correct (starts with https://images.unsplash.com) so the testable contract passes, but in the visible chat the <Image> renders as a grey placeholder (photo does not resolve). Most likely the LLM occasionally returns a photo-id that 404s. Consider validating image_url with a HEAD probe on the backend, or maintaining a curated pool of guaranteed-resolving Unsplash ids per cuisine on the server side.",
+        "testID": "cipher-card-restaurant",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "global",
+        "issue": "Deprecation warnings still present: `shadow*` style props and `expo-av` (to be removed in SDK 54). Non-blocking but worth migrating to `boxShadow` and `expo-audio`/`expo-video`."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2_backend.py",
+    "/app/backend/tests/test_cipherlink_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/iteration2_results.xml"
+  ],
+  "action_items": [
+    "(MEDIUM) Backend /cipher/ask: harden restaurant image_url realism — either HEAD-check the returned Unsplash URL and fall back to the curated default, or seed the LLM with a cuisine→photo-id map so every card has a guaranteed-resolving image.",
+    "(LOW) Migrate `shadow*` → `boxShadow` and `expo-av` → `expo-audio`/`expo-video` to silence SDK 55 deprecation warnings.",
+    "(LOW) Optional: assert return shape of /api/cipher/suggest in suggestion-banner code — current UX handles it already, but tightening prevents regressions."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/server.py cipher_suggest uses datetime.now().timestamp() in session_id — fine, but each call spawns a fresh LlmChat; acceptable.",
+    "cipher_suggest correctly filters out @cipher lines and requires >=2 real messages before calling the LLM — good cost guard.",
+    "Video/audio stored as full base64 in Mongo (acknowledged as MOCKED in the request). For any real traffic this will bloat the DB — replace with real S3/CloudStorage before prod.",
+    "server.py is now ~820 lines; should be split into routers (auth/messages/cipher/users/2fa) to stay under the 700-line guideline."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration2_backend.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9 new) · 96% (24/25) regression", "frontend": "100% of iteration-2 flows verified; 1 MEDIUM realism issue on restaurant image"},
+  "seed_data_creation": "Tests only create transient TEST_* conversations/users which are cleaned up in-test. One group 'TEST_GroupIter2' was created during Playwright run and left behind for Alice; safe to delete.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration-2 tests live at /app/backend/tests/test_iteration2_backend.py (pytest) and pass in ~21s. Frontend viewport 412x880. The suggestion banner actually polls more aggressively than 30s in practice — banner appeared within ~5s. To create a group via Playwright, pick members by iterating query_selector_all('[data-testid^=\"group-member-\"]') and clicking rows whose inner_text contains the target name (direct .get_by_text click fails because the clickable is the parent row). Direct navigation to /group-create still works after login (iteration 1 HIGH bug appears resolved — searchUsers returned users successfully this run). MOCKED: video/audio stored as base64 in Mongo (no real S3), no WebSockets (polling only).",
+  "rca_of_issue": "MEDIUM: Restaurant card Unsplash image renders as grey placeholder. Repro: login alice → open Bob DM → send '@Cipher find an italian restaurant in Connaught Place' → card appears with correct name/rating/price/Book Now, but the <Image source={{uri:image_url}}/> stays grey. Root cause: LLM sometimes hallucinates photo-ids on images.unsplash.com that 404 (e.g. photo-ids that don't exist). Because the URL *prefix* is correct, the backend contract passes, but the visible UX is degraded. Mitigation: (a) backend validates image_url via HEAD and substitutes the curated fallback id when non-200, or (b) CIPHER_SYSTEM prompt is updated with an explicit list of ~20 verified photo ids per cuisine so the LLM can only pick from known-good urls."
+}
