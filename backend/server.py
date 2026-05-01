@@ -579,6 +579,17 @@ async def cipher_ask(payload: CipherAskIn, user=Depends(current_user)):
     session_key = payload.conversation_id or f"user-{user['id']}"
     session_id = f"cipher-{session_key}"
 
+    # Replay last 20 turns from MongoDB so multi-turn context survives restarts
+    # and follow-ups like "What about a cheaper option?" resolve correctly.
+    history = await db.cipher_sessions.find(
+        {"user_id": user["id"], "conversation_id": payload.conversation_id},
+        {"_id": 0, "role": 1, "content": 1},
+    ).sort("created_at", 1).to_list(40)
+    initial_messages = [{"role": "system", "content": CIPHER_SYSTEM}]
+    for h in history[-20:]:
+        if h.get("role") in ("user", "assistant") and h.get("content"):
+            initial_messages.append({"role": h["role"], "content": h["content"]})
+
     # Save question to cipher session log for context UI
     await db.cipher_sessions.insert_one({
         "id": str(uuid.uuid4()),
@@ -595,6 +606,7 @@ async def cipher_ask(payload: CipherAskIn, user=Depends(current_user)):
             api_key=EMERGENT_LLM_KEY,
             session_id=session_id,
             system_message=CIPHER_SYSTEM,
+            initial_messages=initial_messages,
         ).with_model("openai", "gpt-4o")
         reply = await chat.send_message(UserMessage(text=payload.prompt))
     except Exception as exc:
