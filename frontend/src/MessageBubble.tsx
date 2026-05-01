@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   Image,
   StyleSheet,
@@ -7,7 +7,8 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Audio, Video, ResizeMode } from "expo-av";
+import { useAudioPlayer } from "expo-audio";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { COLORS, RADIUS } from "./theme";
 import { useTheme } from "./store";
 import VoiceWaveform from "./VoiceWaveform";
@@ -176,6 +177,73 @@ export default function MessageBubble({
   );
 }
 
+function VideoBubble({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = false;
+  });
+  return (
+    <VideoView
+      player={player}
+      style={styles.video}
+      allowsFullscreen
+      nativeControls
+      contentFit="cover"
+    />
+  );
+}
+
+function AudioBubble({
+  uri,
+  id,
+  textColor,
+  content,
+}: {
+  uri?: string;
+  id: string;
+  textColor: string;
+  content?: string;
+}) {
+  const player = useAudioPlayer(uri ? { uri } : null);
+  const [playing, setPlaying] = React.useState(false);
+
+  const toggle = () => {
+    if (!uri || !player) return;
+    try {
+      if (player.playing) {
+        player.pause();
+        setPlaying(false);
+      } else {
+        // Restart from beginning if finished
+        if (player.currentTime && player.duration && player.currentTime >= player.duration - 0.1) {
+          player.seekTo(0);
+        }
+        player.play();
+        setPlaying(true);
+      }
+    } catch {}
+  };
+
+  // Keep UI in sync if playback ends on its own
+  React.useEffect(() => {
+    if (!player) return;
+    const sub = player.addListener("playbackStatusUpdate", (st: any) => {
+      setPlaying(!!st?.playing);
+    });
+    return () => sub?.remove?.();
+  }, [player]);
+
+  const duration = (content || "").match(/0:\d{2}/)?.[0] || "0:00";
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <TouchableOpacity onPress={toggle} disabled={!uri}>
+        <Ionicons name={playing ? "pause-circle" : "play-circle"} size={32} color={textColor} />
+      </TouchableOpacity>
+      <VoiceWaveform id={id} color={textColor} />
+      <Text style={{ color: textColor, fontSize: 11 }}>{duration}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   row: { flexDirection: "row", marginVertical: 3 },
   bubble: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: RADIUS.bubble },
@@ -201,65 +269,3 @@ const styles = StyleSheet.create({
     borderColor: "#0001",
   },
 });
-
-function VideoBubble({ uri }: { uri: string }) {
-  return (
-    <Video
-      source={{ uri }}
-      style={styles.video}
-      useNativeControls
-      resizeMode={ResizeMode.COVER}
-      isLooping={false}
-    />
-  );
-}
-
-function AudioBubble({
-  uri,
-  id,
-  textColor,
-  content,
-}: {
-  uri?: string;
-  id: string;
-  textColor: string;
-  content?: string;
-}) {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [playing, setPlaying] = useState(false);
-
-  const toggle = async () => {
-    if (!uri) return;
-    try {
-      if (sound && playing) {
-        await sound.pauseAsync();
-        setPlaying(false);
-        return;
-      }
-      if (sound && !playing) {
-        await sound.playAsync();
-        setPlaying(true);
-        return;
-      }
-      const { sound: s } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
-      s.setOnPlaybackStatusUpdate((st: any) => {
-        if (st?.didJustFinish) {
-          setPlaying(false);
-        }
-      });
-      setSound(s);
-      setPlaying(true);
-    } catch {}
-  };
-
-  const duration = (content || "").match(/0:\d{2}/)?.[0] || "0:00";
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      <TouchableOpacity onPress={toggle} disabled={!uri}>
-        <Ionicons name={playing ? "pause-circle" : "play-circle"} size={32} color={textColor} />
-      </TouchableOpacity>
-      <VoiceWaveform id={id} color={textColor} />
-      <Text style={{ color: textColor, fontSize: 11 }}>{duration}</Text>
-    </View>
-  );
-}

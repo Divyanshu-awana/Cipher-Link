@@ -20,7 +20,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
-import { Audio } from "expo-av";
+import { AudioModule, RecordingPresets, useAudioRecorder } from "expo-audio";
 import { COLORS, RADIUS, ASSETS } from "../../src/theme";
 import { useAuth, useTheme } from "../../src/store";
 import {
@@ -60,8 +60,10 @@ export default function ChatScreen() {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [showCipherModal, setShowCipherModal] = useState(false);
   const [cipherPrompt, setCipherPrompt] = useState("");
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [isRecording, setIsRecording] = useState(false);
   const [recordingDur, setRecordingDur] = useState(0);
+  const recordTimerRef = useRef<any>(null);
   const [suggestion, setSuggestion] = useState<{ prompt: string; reason: string } | null>(null);
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -294,42 +296,37 @@ export default function ChatScreen() {
 
   const startRecording = async () => {
     try {
-      const perm = await Audio.requestPermissionsAsync();
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
         Alert.alert("Permission required", "Microphone access denied.");
         return;
       }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const rec = new Audio.Recording();
-      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await rec.startAsync();
-      setRecording(rec);
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setIsRecording(true);
       setRecordingDur(0);
       const t0 = Date.now();
-      const tick = setInterval(() => {
+      recordTimerRef.current = setInterval(() => {
         setRecordingDur(Math.floor((Date.now() - t0) / 1000));
       }, 500);
-      (rec as any)._tick = tick;
     } catch (e) {
       Alert.alert("Recording failed", String(e));
     }
   };
 
   const stopRecordingAndSend = async () => {
-    if (!recording) return;
+    if (!isRecording) return;
     try {
-      clearInterval((recording as any)._tick);
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecording(null);
+      clearInterval(recordTimerRef.current);
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
+      const dur = recordingDur;
+      setIsRecording(false);
       setRecordingDur(0);
       if (!uri) return;
       const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
       const data = `data:audio/m4a;base64,${b64}`;
-      const durationLabel = `0:${String(recordingDur).padStart(2, "0")}`;
+      const durationLabel = `0:${String(dur).padStart(2, "0")}`;
       const newMsg = await sendMessage(id, {
         content: `Voice message · ${durationLabel}`,
         type: "audio",
@@ -343,12 +340,12 @@ export default function ChatScreen() {
   };
 
   const cancelRecording = async () => {
-    if (!recording) return;
+    if (!isRecording) return;
     try {
-      clearInterval((recording as any)._tick);
-      await recording.stopAndUnloadAsync();
+      clearInterval(recordTimerRef.current);
+      await audioRecorder.stop();
     } catch {}
-    setRecording(null);
+    setIsRecording(false);
     setRecordingDur(0);
   };
 
@@ -518,16 +515,16 @@ export default function ChatScreen() {
         ) : (
           <TouchableOpacity
             testID="chat-mic-button"
-            onPress={recording ? stopRecordingAndSend : startRecording}
-            onLongPress={recording ? cancelRecording : undefined}
-            style={[styles.sendBtn, { backgroundColor: recording ? COLORS.error : COLORS.primary }]}
+            onPress={isRecording ? stopRecordingAndSend : startRecording}
+            onLongPress={isRecording ? cancelRecording : undefined}
+            style={[styles.sendBtn, { backgroundColor: isRecording ? COLORS.error : COLORS.primary }]}
           >
-            <Ionicons name={recording ? "stop" : "mic"} size={20} color="#fff" />
+            <Ionicons name={isRecording ? "stop" : "mic"} size={20} color="#fff" />
           </TouchableOpacity>
         )}
       </View>
 
-      {recording ? (
+      {isRecording ? (
         <View style={[styles.recordingBanner, { backgroundColor: COLORS.error }]}>
           <View style={styles.recordingDot} />
           <Text style={{ color: "#fff", fontWeight: "700" }}>
