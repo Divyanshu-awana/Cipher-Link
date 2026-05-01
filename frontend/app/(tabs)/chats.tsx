@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -20,6 +21,7 @@ import {
   muteConversation,
 } from "../../src/api";
 import Avatar from "../../src/Avatar";
+import { showLocalNotification } from "../../src/notifications";
 
 function relTime(iso?: string) {
   if (!iso) return "";
@@ -38,17 +40,87 @@ export default function ChatsTab() {
   const [convs, setConvs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Track last-seen message id per conversation to detect new arrivals
+  const lastSeenRef = useRef<Record<string, string>>({});
+  const initializedRef = useRef(false);
+  const globalPollRef = useRef<any>(null);
 
   const load = useCallback(async () => {
     try {
       const data = await listConversations();
       setConvs(data);
+      // Initialize last-seen map on first load (don't notify for existing messages)
+      if (!initializedRef.current) {
+        data.forEach((c: any) => {
+          if (c.last_message?.id) lastSeenRef.current[c.id] = c.last_message.id;
+        });
+        initializedRef.current = true;
+      }
     } catch (e) {
       Alert.alert("Error", apiError(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  }, []);
+
+  // Global poller: runs continuously while user is on any tab and fires local
+  // notifications for new incoming messages (WhatsApp-style in-app/background alerts)
+  useEffect(() => {
+    const pollAndNotify = async () => {
+      try {
+        const data = await listConversations();
+        const myId = data[0]?.current_user_id;
+        setConvs(data);
+        for (const c of data) {
+          const last = c.last_message;
+          if (!last?.id) continue;
+          const seen = lastSeenRef.current[c.id];
+          // new message from someone else
+          if (
+            initializedRef.current &&
+            seen &&
+            seen !== last.id &&
+            last.sender_id !== myId &&
+            !(c.muted_by || []).includes(myId)
+          ) {
+            const preview =
+              last.deleted
+                ? "Message deleted"
+                : last.type === "cipher"
+                ? "✨ Cipher answered"
+                : last.type === "image"
+                ? "📷 Photo"
+                : last.type === "audio"
+                ? "🎤 Voice message"
+                : last.type === "video"
+                ? "🎥 Video"
+                : last.type === "document"
+                ? "📎 Document"
+                : (last.content || "New message").slice(0, 140);
+            const senderName =
+              last.sender?.name || c.members?.find((m: any) => m.id === last.sender_id)?.name || c.name;
+            showLocalNotification({
+              title: c.type === "group" ? `${senderName} • ${c.name}` : senderName || "New message",
+              body: preview,
+              convId: c.id,
+              data: { convId: c.id },
+            });
+          }
+          lastSeenRef.current[c.id] = last.id;
+        }
+        initializedRef.current = true;
+      } catch {}
+    };
+
+    globalPollRef.current = setInterval(pollAndNotify, 4000);
+    const appSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") pollAndNotify();
+    });
+    return () => {
+      if (globalPollRef.current) clearInterval(globalPollRef.current);
+      appSub.remove();
+    };
   }, []);
 
   useFocusEffect(

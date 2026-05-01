@@ -21,8 +21,10 @@ import * as DocumentPicker from "expo-document-picker";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import { AudioModule, RecordingPresets, useAudioRecorder } from "expo-audio";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS, RADIUS, ASSETS } from "../../src/theme";
 import { useAuth, useTheme } from "../../src/store";
+import { clearConvNotifications } from "../../src/notifications";
 import {
   apiError,
   askCipher,
@@ -48,6 +50,7 @@ export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const [conv, setConv] = useState<any>(null);
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +93,8 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       load();
+      // Clear any system notifications for this chat when user enters
+      clearConvNotifications();
       pollRef.current = setInterval(async () => {
         try {
           const m = await listMessages(id);
@@ -408,8 +413,8 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.background }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={80}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 44 : 0}
     >
       <Stack.Screen
         options={{
@@ -437,6 +442,26 @@ export default function ChatScreen() {
               </View>
             </TouchableOpacity>
           ),
+          headerRight: () => (
+            <TouchableOpacity
+              testID="cipher-header-button"
+              onPress={() => setShowCipherModal(true)}
+              style={{
+                marginRight: 8,
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: COLORS.aiAccent + "22",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 100,
+              }}
+            >
+              <Ionicons name="sparkles" size={16} color={COLORS.aiAccent} />
+              <Text style={{ color: COLORS.aiAccent, fontWeight: "700", marginLeft: 4, fontSize: 12 }}>
+                Cipher
+              </Text>
+            </TouchableOpacity>
+          ),
         }}
       />
 
@@ -444,7 +469,7 @@ export default function ChatScreen() {
         ref={listRef}
         data={msgs}
         keyExtractor={(m) => m.id}
-        contentContainerStyle={{ paddingVertical: 8, flexGrow: 1 }}
+        contentContainerStyle={{ paddingVertical: 8, paddingBottom: 12, flexGrow: 1 }}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         renderItem={({ item, index }) => {
           const prev = msgs[index - 1];
@@ -462,6 +487,65 @@ export default function ChatScreen() {
         }}
         ListFooterComponent={askingCipher ? <TypingIndicator name="Cipher" /> : null}
       />
+
+      {/* Inline suggestion banner — sits above input, never over messages */}
+      {suggestion && !suggestionDismissed ? (
+        <View
+          testID="cipher-suggestion-banner"
+          style={[
+            styles.suggestBannerInline,
+            {
+              backgroundColor: mode === "dark" ? "#241B3F" : "#F6F1FF",
+              borderColor: COLORS.aiAccent,
+            },
+          ]}
+        >
+          <Ionicons name="sparkles" size={18} color={COLORS.aiAccent} />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={{ color: COLORS.aiAccent, fontWeight: "700", fontSize: 12 }}>
+              Cipher suggests
+            </Text>
+            <Text style={{ color: colors.textPrimary, fontSize: 13 }} numberOfLines={2}>
+              {suggestion.reason}
+            </Text>
+          </View>
+          <TouchableOpacity
+            testID="cipher-suggestion-accept"
+            onPress={async () => {
+              const p = suggestion.prompt;
+              setSuggestion(null);
+              setSuggestionDismissed(true);
+              await askCipherAndPost(p);
+            }}
+            style={{ backgroundColor: COLORS.aiAccent, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 100 }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Schedule</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="cipher-suggestion-dismiss"
+            onPress={() => {
+              setSuggestion(null);
+              setSuggestionDismissed(true);
+            }}
+            style={{ marginLeft: 6, padding: 4 }}
+          >
+            <Ionicons name="close" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {/* Inline recording banner */}
+      {isRecording ? (
+        <View style={[styles.recordingBannerInline, { backgroundColor: COLORS.error }]}>
+          <View style={styles.recordingDot} />
+          <Text style={{ color: "#fff", fontWeight: "700" }}>
+            Recording… 0:{String(recordingDur).padStart(2, "0")}
+          </Text>
+          <Text style={{ color: "#fff", fontSize: 11, marginLeft: 10, opacity: 0.9 }}>
+            Tap ■ to send · long-press to cancel
+          </Text>
+        </View>
+      ) : null}
 
       {replyTo ? (
         <View style={[styles.replyStrip, { backgroundColor: colors.surface, borderColor: COLORS.primary }]}>
@@ -524,57 +608,6 @@ export default function ChatScreen() {
         )}
       </View>
 
-      {isRecording ? (
-        <View style={[styles.recordingBanner, { backgroundColor: COLORS.error }]}>
-          <View style={styles.recordingDot} />
-          <Text style={{ color: "#fff", fontWeight: "700" }}>
-            Recording… 0:{String(recordingDur).padStart(2, "0")}
-          </Text>
-          <Text style={{ color: "#fff", fontSize: 11, marginLeft: 10, opacity: 0.9 }}>
-            Tap ■ to send · long-press to cancel
-          </Text>
-        </View>
-      ) : null}
-
-      {suggestion && !suggestionDismissed ? (
-        <View
-          testID="cipher-suggestion-banner"
-          style={[styles.suggestBanner, { backgroundColor: mode === "dark" ? "#241B3F" : "#F6F1FF", borderColor: COLORS.aiAccent }]}
-        >
-          <Ionicons name="sparkles" size={18} color={COLORS.aiAccent} />
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={{ color: COLORS.aiAccent, fontWeight: "700", fontSize: 12 }}>
-              Cipher suggests
-            </Text>
-            <Text style={{ color: colors.textPrimary, fontSize: 13 }} numberOfLines={2}>
-              {suggestion.reason}
-            </Text>
-          </View>
-          <TouchableOpacity
-            testID="cipher-suggestion-accept"
-            onPress={async () => {
-              const p = suggestion.prompt;
-              setSuggestion(null);
-              setSuggestionDismissed(true);
-              await askCipherAndPost(p);
-            }}
-            style={{ backgroundColor: COLORS.aiAccent, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 100 }}
-          >
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Schedule</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            testID="cipher-suggestion-dismiss"
-            onPress={() => {
-              setSuggestion(null);
-              setSuggestionDismissed(true);
-            }}
-            style={{ marginLeft: 6, padding: 4 }}
-          >
-            <Ionicons name="close" size={18} color={colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-      ) : null}
-
       {toast ? (
         <View style={[styles.toast, { backgroundColor: colors.surface, borderColor: COLORS.primary }]}>
           <Ionicons name="notifications" size={16} color={COLORS.primary} />
@@ -583,14 +616,6 @@ export default function ChatScreen() {
           </Text>
         </View>
       ) : null}
-
-      <TouchableOpacity
-        testID="cipher-floating-button"
-        onPress={() => setShowCipherModal(true)}
-        style={[styles.fab, { backgroundColor: COLORS.aiAccent }]}
-      >
-        <Image source={{ uri: ASSETS.cipherAvatar }} style={{ width: 32, height: 32, borderRadius: 16 }} />
-      </TouchableOpacity>
 
       {/* Attach picker */}
       <Modal transparent visible={showAttach} animationType="slide" onRequestClose={() => setShowAttach(false)}>
@@ -828,6 +853,25 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
+  },
+  recordingBannerInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 8,
+    marginBottom: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  suggestBannerInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 8,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
   },
   modalBackdrop: { flex: 1, backgroundColor: "#0008", justifyContent: "flex-end" },
   sheet: {

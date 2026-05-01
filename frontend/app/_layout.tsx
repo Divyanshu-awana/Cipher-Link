@@ -1,12 +1,26 @@
-import React from "react";
-import { Stack } from "expo-router";
+import React, { useEffect } from "react";
+import { Stack, useRouter } from "expo-router";
+import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppProviders, useTheme } from "../src/store";
+import { ensureNotificationPermission } from "../src/notifications";
 
 function ThemedStack() {
   const { mode, colors } = useTheme();
+  const router = useRouter();
+
+  useEffect(() => {
+    ensureNotificationPermission();
+    // Tapping a notification → open its chat
+    const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
+      const convId = resp.notification.request.content.data?.convId as string | undefined;
+      if (convId) router.push(`/chat/${convId}`);
+    });
+    return () => sub.remove();
+  }, [router]);
+
   return (
     <>
       <StatusBar style={mode === "dark" ? "light" : "dark"} />
