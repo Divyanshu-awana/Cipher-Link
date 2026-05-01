@@ -1,0 +1,153 @@
+{
+  "app_name": "CipherLink",
+  "theme_and_archetype": {
+    "theme": "Light & Dark Mode (Togglable)",
+    "archetype": "Swiss & High-Contrast with Electric AI Accents",
+    "rationale": "Base UI is clean and trustworthy (Archetype 4) utilizing blue and strict material guidelines. AI features break this mold with purple/teal neon accents to feel like an intelligent, separate entity operating within the secure space."
+  },
+  "color_palette": {
+    "primary": "#1A73E8",
+    "ai_accent_primary": "#7C3AED",
+    "ai_accent_secondary": "#14B8A6",
+    "success": "#34A853",
+    "error": "#EA4335",
+    "light_mode": {
+      "background": "#F8F9FA",
+      "surface": "#FFFFFF",
+      "surface_variant": "#F1F3F4",
+      "text_primary": "#202124",
+      "text_secondary": "#5F6368",
+      "border": "#E8EAED",
+      "chat_bubble_sent": "#1A73E8",
+      "chat_bubble_received": "#E8EAED",
+      "chat_bubble_text_sent": "#FFFFFF",
+      "chat_bubble_text_received": "#202124",
+      "tab_bar": "#FFFFFF"
+    },
+    "dark_mode": {
+      "background": "#121212",
+      "surface": "#1E1E1E",
+      "surface_variant": "#2D2D2D",
+      "text_primary": "#E8EAED",
+      "text_secondary": "#9AA0A6",
+      "border": "#3C4043",
+      "chat_bubble_sent": "#1A73E8",
+      "chat_bubble_received": "#2D2D2D",
+      "chat_bubble_text_sent": "#FFFFFF",
+      "chat_bubble_text_received": "#E8EAED",
+      "tab_bar": "#1E1E1E"
+    }
+  },
+  "typography": {
+    "font_family_heading": "Roboto",
+    "font_family_body": "Inter",
+    "sizes": {
+      "h1": 32,
+      "h2": 24,
+      "h3": 20,
+      "body_lg": 18,
+      "body": 16,
+      "caption": 14,
+      "micro": 12
+    },
+    "weights": {
+      "regular": "400",
+      "medium": "500",
+      "bold": "700"
+    }
+  },
+  "spacing_and_layout": {
+    "base_unit": 8,
+    "padding": {
+      "xs": 4,
+      "sm": 8,
+      "md": 16,
+      "lg": 24,
+      "xl": 32,
+      "xxl": 48
+    },
+    "border_radius": {
+      "card": 16,
+      "bubble": 24,
+      "button": 100,
+      "avatar": 100
+    },
+    "elevation": {
+      "sm": {
+        "shadowColor": "#000",
+        "shadowOffset": { "width": 0, "height": 1 },
+        "shadowOpacity": 0.18,
+        "shadowRadius": 1.0,
+        "elevation": 1
+      },
+      "md": {
+        "shadowColor": "#000",
+        "shadowOffset": { "width": 0, "height": 2 },
+        "shadowOpacity": 0.2,
+        "shadowRadius": 2.62,
+        "elevation": 4
+      },
+      "lg": {
+        "shadowColor": "#7C3AED",
+        "shadowOffset": { "width": 0, "height": 4 },
+        "shadowOpacity": 0.3,
+        "shadowRadius": 4.65,
+        "elevation": 8
+      }
+    }
+  },
+  "components": {
+    "message_bubbles": {
+      "sent": "Primary background (#1A73E8), Right aligned, border-radius 24px, bottom-right radius 4px.",
+      "received": "Surface variant background, Left aligned, border-radius 24px, bottom-left radius 4px.",
+      "delivery_status": "Render ✓ for sent, ✓✓ for delivered, ✓✓ (blue) for read. Placed at bottom right of sent bubbles."
+    },
+    "ai_cipher_cards": {
+      "style": "Surface background with 1px border using AI accents (#7C3AED). Corner radius 16px.",
+      "layout": "Horizontal ScrollView (carousel) with snapToInterval for cards. Maximum 3 results.",
+      "restaurant_card": "Image at top (height: 120px), title, rating row, price/distance text, solid 'Book' button colored #7C3AED.",
+      "weather_card": "Current temp large text, condition icon, 3-day forecast row at bottom.",
+      "calendar_card": "Date block, event title, time, 'Accept'/'Decline' action buttons."
+    },
+    "cipher_floating_button": {
+      "position": "Absolute, bottom-right above chat input.",
+      "style": "Circular (56x56), solid #7C3AED background with 'lg' elevation (glow effect). Icon: AI/Robot in white."
+    },
+    "voice_message": {
+      "style": "Inline bubble containing play/pause button, waveform visualizer (bars of varying heights), and duration text."
+    },
+    "attachment_picker": {
+      "style": "Bottom sheet modal. Grid layout of options: Camera, Gallery, File/Document, Audio. Icons in circular containers."
+    }
+  },
+  "screens": {
+    "onboarding": "Splash screen with secure chat 3D illustration. Registration form (email/phone), OTP input (4-6 separate boxes), Profile setup.",
+    "chats_tab": "List view. Avatar on left (with green online dot if active), Name & timestamp on top row, last message & unread badge on bottom row. Swipe left to delete/mute.",
+    "chat_screen": "Header: Avatar, Name, online status. Body: FlatList of message bubbles. Long-press message: context menu to reply/copy/delete/react with emoji. Footer: Input area with attachment pin, text field, mic icon. Floating Cipher button.",
+    "search_tab": "Top search bar. Filter pills (All, Messages, Contacts, AI Conversations) horizontally scrollable. Results FlatList below.",
+    "profile_tab": "Avatar massive, Name, Phone/Email. Settings list: 2FA TOTP (shows QR code placeholder if setting up), Theme Toggle (Light/Dark switch), GDPR 'Delete Account' (Red/Error color)."
+  },
+  "media_urls": {
+    "ai_avatar": "https://static.prod-images.emergentagent.com/jobs/516fd2f8-6558-4f6e-aaa0-027f1fc37246/images/c43a0ce85323c89a50e371fea68353d90ea9a976d2ab626e93d84ecf860313d2.png",
+    "onboarding_secure": "https://static.prod-images.emergentagent.com/jobs/516fd2f8-6558-4f6e-aaa0-027f1fc37246/images/a9d606360b2ddf3f9540b9d96a38bfb11a5eacc5a2f679a306c6c7486a1349fb.png",
+    "human_avatars": [
+      "https://images.unsplash.com/photo-1647969539749-edae0467472b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwzfHxkaXZlcnNlJTIwcG9ydHJhaXQlMjBmYWNlfGVufDB8fHx8MTc3NzYzOTkzMnww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1647970761845-e64f18b4edae?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHw0fHxkaXZlcnNlJTIwcG9ydHJhaXQlMjBmYWNlfGVufDB8fHx8MTc3NzYzOTkzMnww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1775817647097-04b0cfad5cd2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHxkaXZlcnNlJTIwcG9ydHJhaXQlMjBmYWNlfGVufDB8fHx8MTc3NzYzOTkzMnww&ixlib=rb-4.1.0&q=85"
+    ],
+    "restaurant_cards": [
+      "https://images.unsplash.com/photo-1642158136957-0f43fb43d3cb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwyfHxpdGFsaWFuJTIwZm9vZCUyMGNhZmV8ZW58MHx8fHwxNzc3NjM5OTMyfDA&ixlib=rb-4.1.0&q=85"
+    ],
+    "weather_images": [
+      "https://images.unsplash.com/photo-1590064438961-e815cd0e19b5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxzdW5ueSUyMHdlYXRoZXIlMjBsYW5kc2NhcGV8ZW58MHx8fHwxNzc3NjM5OTMyfDA&ixlib=rb-4.1.0&q=85"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Strictly use React Native components (View, Text, TouchableOpacity, Image, FlatList, ScrollView, Modal). Do not use HTML tags like div, span, p.",
+    "Ensure dynamic theming is supported by referencing light_mode/dark_mode colors dynamically.",
+    "For shadows, use React Native's shadowColor, shadowOffset, shadowOpacity, shadowRadius, and elevation properties mapped to Material Design 3 guidelines. Included in spacing_and_layout.elevation.",
+    "Add testID props to all interactive elements for robust testing (e.g., testID='chat-send-button', testID='cipher-floating-button'). This maps to the data-testid requirement for web.",
+    "Ensure Cipher AI cards use horizontal scrolling with paging/snapToInterval.",
+    "Voice message waveform should be built using horizontal bars of varying heights inside a View."
+  ]
+}
