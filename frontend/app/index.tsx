@@ -1,30 +1,37 @@
-import { Text, View, StyleSheet, Image } from "react-native";
-
-const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+import React, { useEffect } from "react";
+import { View, ActivityIndicator, Image, Text, StyleSheet } from "react-native";
+import { Redirect } from "expo-router";
+import { COLORS, ASSETS } from "../src/theme";
+import { useAuth } from "../src/store";
 
 export default function Index() {
-  console.log(EXPO_PUBLIC_BACKEND_URL, "EXPO_PUBLIC_BACKEND_URL");
-
-  return (
-    <View style={styles.container}>
-      <Image
-        source={require("../assets/images/app-image.png")}
-        style={styles.image}
-      />
-    </View>
-  );
+  const { ready, user } = useAuth();
+  // tiny visible splash while we hydrate
+  if (!ready) {
+    return (
+      <View style={styles.wrap} testID="splash-screen">
+        <Image source={{ uri: ASSETS.cipherAvatar }} style={styles.logo} />
+        <Text style={styles.title}>CipherLink</Text>
+        <ActivityIndicator color={COLORS.aiAccent} style={{ marginTop: 16 }} />
+      </View>
+    );
+  }
+  return <Redirect href={user ? "/(tabs)/chats" : "/(auth)/login"} />;
 }
 
 const styles = StyleSheet.create({
-  container: {
+  wrap: {
     flex: 1,
-    backgroundColor: "#0c0c0c",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#0E0820",
   },
-  image: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "contain",
+  logo: { width: 88, height: 88, borderRadius: 24 },
+  title: {
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "700",
+    marginTop: 18,
+    letterSpacing: 1,
   },
 });

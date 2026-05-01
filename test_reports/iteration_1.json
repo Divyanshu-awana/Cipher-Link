@@ -1,0 +1,85 @@
+{
+  "summary": "Initial CipherLink testing pass. Backend: 24/25 pytest tests passed (96%). Frontend: All major mobile flows render and work — login/register, chats list, chat send/receive, @Cipher inline restaurant card, new-chat, groups empty state, search with filters, profile (theme/2FA/signout/delete), 2FA setup screen with QR+secret+6-digit input, onboarding tour 3 slides. One real frontend bug found on /group-create (401 from /users/search on initial mount).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/register",
+        "issue": "Test failure was test-side only: backend correctly lowercases email (TEST_xxx → test_xxx). The created account is fine. Not a backend bug; flagged for awareness."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "app/group-create.tsx",
+        "issue": "Direct navigation to /group-create after a fresh page load throws 'Request failed with status code 401' from searchUsers(). Root cause: useEffect calls searchUsers() before the AsyncStorage token has been loaded into api.defaults.headers (loadToken is async and the call fires too early). Other tabs/screens (e.g. /profile, /chats) handle this correctly because they re-trigger after the auth token finishes loading via the store. Fix: in group-create.tsx, await loadToken()/wait for store.user before calling searchUsers; or read token synchronously from store before issuing the request.",
+        "testID": "group-name-input",
+        "priority": "HIGH"
+      },
+      {
+        "component": "app/(tabs)/search.tsx",
+        "issue": "Filter pills row (All / Messages / Contacts / AI Conversations) overflows the right edge on 412px viewport — 'AI Conversations' pill is clipped. Use horizontal ScrollView or shorter labels (e.g. 'AI').",
+        "testID": "search-filter-ai",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "app/(tabs)/chats.tsx",
+        "issue": "cipher-floating-button testID is NOT present on chats tab — only present on chat/[id]. The review request lists this button as testable on screens beyond the chat. If by design this is chat-only, it works there. If the global Cipher launcher was intended on chats/groups/search/profile too, please add it.",
+        "testID": "cipher-floating-button",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "First-load API calls",
+        "issue": "On cold load, AsyncStorage logs 'Native module is null, cannot access legacy storage' once before recovering. The api client has no Authorization header until loadToken() resolves. Any screen that fires API calls in its initial useEffect (currently observed on group-create) can race and 401. Recommend gating screen-mount fetches on `if (!user) return` from store, OR awaiting loadToken in api interceptor before first call.",
+        "affected_testIDs": ["group-name-input", "group-create-button"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "search",
+        "issues": ["Filter pills row overflows horizontally on 412px width; consider horizontal scroll or compact labels."]
+      }
+    ],
+    "react_native_issues": [
+      {
+        "component": "global",
+        "issue": "Multiple 'shadow* style props are deprecated. Use boxShadow' warnings in Expo SDK 55 — non-blocking but should migrate to boxShadow."
+      },
+      {
+        "component": "@react-native-async-storage/async-storage (via src/api.ts loadToken)",
+        "issue": "'AsyncStorageError: Native module is null, cannot access legacy storage' fires once on web preview cold start. Functionality recovers but the race causes the group-create 401 noted above."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cipherlink_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "FIX group-create.tsx 401: await loadToken() (or read token from store) before calling searchUsers() on mount, OR add a global axios interceptor that calls loadToken() on first request.",
+    "Make Search filter pills horizontally scrollable or shorten 'AI Conversations' label to fit 412px width.",
+    "(Optional) Replace deprecated 'shadow*' style props with 'boxShadow' across components.",
+    "(Optional) If the global Cipher floating button is meant to live outside chat/[id], expose it on chats/groups/search tabs."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~740 lines — still maintainable but approaching the 700-line guidance; consider splitting into routers/auth.py, routers/messages.py, routers/cipher.py.",
+    "Cipher fallback path returns 200 with `fallback: true` — good for UX, but consider logging more context for observability.",
+    "Frontend api.ts loadToken() races with api calls on first mount; an axios request interceptor that ensures loadToken() has resolved before sending would eliminate the entire class of 401-on-cold-load bugs.",
+    "DELETE /api/users/me deletes messages by sender_id only; messages from this user remain in conversation_history view of others (which is correct GDPR — content authored by them is wiped). Confirm product intent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/__init__.py (created)",
+    "/app/backend/tests/conftest.py (created)",
+    "/app/backend/tests/test_cipherlink_backend.py (created)"
+  ],
+  "success_rate": {"backend": "96% (24/25)", "frontend": "~90% (1 HIGH bug, 1 MEDIUM design)"},
+  "seed_data_creation": "No new seed users created. Tests use existing seeded alice/bob/cara/dan and create transient TEST_* accounts that are deleted by the GDPR test path or left behind only for the registration test.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend BASE URL is read from frontend/.env EXPO_PUBLIC_BACKEND_URL (NOT EXPO_BACKEND_URL). Tests live at /app/backend/tests/test_cipherlink_backend.py and use seeded accounts (password Test1234). Mobile viewport for Playwright = 412x880. Known transient issues: AsyncStorage 'Native module is null' fires once on web cold load; group-create races on auth token (HIGH bug — needs frontend fix). Cipher AI uses Emergent LLM key and responds correctly to restaurant/weather/calendar/follow-up prompts.",
+  "rca_of_issue": "BUG: /group-create shows 'Request failed with status code 401'.\nReproduction: 1) login as alice 2) navigate directly to https://vault-talk-8.preview.emergentagent.com/group-create. Result: red error overlay 'Request failed with status code 401' from src/api.ts:79 searchUsers().\nRoot cause: src/api.ts.loadToken() reads token from AsyncStorage asynchronously and only sets api.defaults.headers.common.Authorization after the await resolves. group-create.tsx calls searchUsers() inside its initial useEffect, which can fire before loadToken() finishes (especially after a hard reload where store/auth provider has not yet hydrated). Other screens such as /profile/(tabs) work because they read user from store and re-fetch once user becomes truthy.\nMitigation options: (a) add an axios request interceptor in api.ts that awaits loadToken() before the first call, (b) in group-create.tsx, gate fetch on `if (!user) return` (where user comes from useStore()), (c) call await loadToken() at the top of group-create's useEffect before searchUsers()."
+}
