@@ -583,6 +583,57 @@ def _strip_fences(t: str) -> str:
     return t.strip()
 
 
+# Curated Unsplash photo IDs (verified) grouped by cuisine keyword.
+# Used to overwrite any hallucinated image_url so restaurant cards
+# always render a real photo.
+RESTAURANT_IMAGES: Dict[str, List[str]] = {
+    "italian": [
+        "1565299624946-b28f40a0ae38",  # pasta
+        "1574071318508-1cdbab80d002",  # pizza
+        "1555396273-367ea4eb4db5",     # italian plating
+    ],
+    "japanese": [
+        "1579027989536-b7b1f875659b",  # sushi
+        "1617196034796-73dfa7b1fd56",  # ramen
+    ],
+    "indian": [
+        "1565557623262-b51c2513a641",  # curry thali
+        "1589302168068-964664d93dc0",  # butter chicken
+    ],
+    "chinese": [
+        "1585032226651-759b368d7246",  # dim sum
+        "1563245372-f21724e3856d",     # noodles
+    ],
+    "mexican": [
+        "1565299585323-38d6b0865b47",  # tacos
+        "1504544750208-dc0358e63f7f",  # burrito bowl
+    ],
+    "cafe": [
+        "1495474472287-4d71bcdd2085",  # latte art
+        "1453614512568-c4024d13c247",  # cafe table
+    ],
+    "french": [
+        "1504754524776-8f4f37790ca0",  # croissant
+        "1550304943-4f24f54ddde9",     # bistro
+    ],
+    "default": [
+        "1517248135467-4c7edcad34c4",  # warm restaurant
+        "1559339352-11d035aa65de",     # bistro table
+    ],
+}
+
+
+def _pick_restaurant_image(card: Dict[str, Any]) -> str:
+    cuisine = (card.get("cuisine") or "").lower()
+    for key, ids in RESTAURANT_IMAGES.items():
+        if key in cuisine:
+            photo = ids[hash(card.get("name", "")) % len(ids)]
+            return f"https://images.unsplash.com/photo-{photo}?w=600&q=80"
+    ids = RESTAURANT_IMAGES["default"]
+    photo = ids[hash(card.get("name", "")) % len(ids)]
+    return f"https://images.unsplash.com/photo-{photo}?w=600&q=80"
+
+
 @api.post("/cipher/ask")
 async def cipher_ask(payload: CipherAskIn, user=Depends(current_user)):
     if not EMERGENT_LLM_KEY:
@@ -638,6 +689,12 @@ async def cipher_ask(payload: CipherAskIn, user=Depends(current_user)):
     parsed.setdefault("intent", "general")
     parsed.setdefault("summary", "")
     parsed.setdefault("cards", [])
+
+    # Guarantee restaurant images resolve — overwrite LLM-hallucinated URLs
+    # with curated Unsplash ids from RESTAURANT_IMAGES.
+    for c in parsed.get("cards") or []:
+        if isinstance(c, dict) and c.get("type") == "restaurant":
+            c["image_url"] = _pick_restaurant_image(c)
 
     # log assistant reply
     await db.cipher_sessions.insert_one({

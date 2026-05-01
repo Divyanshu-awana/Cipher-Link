@@ -36,10 +36,30 @@ called **Cipher**. Built on Expo (React Native) + FastAPI + MongoDB.
 - Card types: restaurant (image, rating, ₹/$, distance, Book Now),
   weather (icon + 4-day forecast), calendar (date block + Meet link),
   reminder, general
+- **Proactive meeting suggestion**: `/api/cipher/suggest` scans the last
+  15 conversation messages every 30s and surfaces a dismissible purple
+  banner above the chat input when a meeting intent is detected; tapping
+  "Schedule" posts the prepared prompt to Cipher automatically
 - Session-scoped multi-turn context (LlmChat session_id =
-  `cipher-{conversation_id}`) — supports follow-ups like
-  "What about a cheaper option?"
+  `cipher-{conversation_id}`) persisted in MongoDB — supports follow-ups
+  like "What about a cheaper option?" after process restart
+- Curated Unsplash image pool per cuisine so restaurant cards never
+  show broken images
 - Graceful fallback ("Cipher is running in limited mode") on LLM failure
+
+**Media**
+- Real audio recording (expo-av `Audio.Recording` → base64 m4a → inline
+  play/pause with waveform)
+- Real video messages (expo-image-picker → base64 mp4 ≤8 MB → inline
+  `expo-av` `Video` with native controls)
+- Image capture/pick → base64 jpeg
+- Document picker (any mime) → base64 + filename + size
+- In-chat toast notification when a new message arrives during polling
+
+**Groups**
+- Create group (name + members)
+- Tap the chat header of a group → `/group-info/{id}` route:
+  members list with Admin chip, online dots, and a Leave-group action
 
 **Tabs**
 - Chats (with FAB, swipe/long-press for mute/delete, online dot, unread badge)
