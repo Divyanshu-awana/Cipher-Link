@@ -13,14 +13,36 @@ export const api: AxiosInstance = axios.create({
 });
 
 let _token: string | null = null;
+let _loadPromise: Promise<string | null> | null = null;
 
 export async function loadToken(): Promise<string | null> {
   if (_token) return _token;
-  const t = await AsyncStorage.getItem(TOKEN_KEY);
-  _token = t;
-  if (t) api.defaults.headers.common.Authorization = `Bearer ${t}`;
-  return t;
+  if (_loadPromise) return _loadPromise;
+  _loadPromise = (async () => {
+    try {
+      const t = await AsyncStorage.getItem(TOKEN_KEY);
+      _token = t;
+      if (t) api.defaults.headers.common.Authorization = `Bearer ${t}`;
+      return t;
+    } catch {
+      return null;
+    }
+  })();
+  return _loadPromise;
 }
+
+// Ensure every outgoing request has the Authorization header attached
+// even if its caller fired before loadToken() resolved (fixes 401 race).
+api.interceptors.request.use(async (config) => {
+  if (!config.headers?.Authorization) {
+    const t = await loadToken();
+    if (t) {
+      config.headers = config.headers || {};
+      (config.headers as any).Authorization = `Bearer ${t}`;
+    }
+  }
+  return config;
+});
 
 export async function setToken(token: string | null) {
   _token = token;

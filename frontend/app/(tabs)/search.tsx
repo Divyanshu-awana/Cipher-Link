@@ -19,7 +19,7 @@ const FILTERS = [
   { key: "all", label: "All" },
   { key: "messages", label: "Messages" },
   { key: "contacts", label: "Contacts" },
-  { key: "ai", label: "AI Conversations" },
+  { key: "ai", label: "AI Chats" },
 ] as const;
 
 type FilterKey = (typeof FILTERS)[number]["key"];
